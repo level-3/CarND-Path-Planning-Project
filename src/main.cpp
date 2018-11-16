@@ -8,7 +8,9 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
-
+#include "spline.h"
+#include <cstdlib>
+#include "hybrid_breadth_first.cpp"
 using namespace std;
 
 // for convenience
@@ -33,6 +35,7 @@ string hasData(string s) {
   }
   return "";
 }
+
 
 double distance(double x1, double y1, double x2, double y2)
 {
@@ -163,6 +166,100 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+
+//________________________________________________
+
+
+int X = 1;
+int _ = 0;
+
+double SPEED = 1.45;
+double LENGTH = 0.5;
+
+vector< vector<int> > MAZE_3x10 = {
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+{_,_,_},
+};
+
+vector<vector<int>> GRID = MAZE_3x10;
+
+vector<double> START = {0.0,0.0,0.0};
+vector<int> GOAL = {(int)GRID.size()-1, (int)GRID[0].size()-1};
+
+int resetGRID(vector< vector<int> > GRID)
+{
+
+for(int i = 0; i < GRID.size(); i++)
+  {
+    for(int j = 1; j < GRID[0].size(); j++)
+    {
+    GRID[i][j] = 0;
+    }
+  }
+}
+
+int expandGRID(vector< vector<int> > GRID)
+{
+
+  for(int i = 0; i < GRID.size(); i++)
+  {
+    cout << GRID[i][0];
+    for(int j = 1; j < GRID[0].size(); j++)
+    {
+      cout << "," << GRID[i][j];
+    }
+    cout << endl;
+  }
+}
+
+int hybrid_search(vector< vector<int> > GRID,int lane) {
+  
+  GOAL = {0,lane};
+  //GOAL = {(int)GRID.size()-1, (int)GRID[0].size()-1};
+
+
+  cout << "Finding path through grid:" << endl;
+  /*  
+  // TODO:: Create an Empty Maze and try testing the number of expansions with it
+
+  */
+
+  expandGRID(GRID);
+
+  HBF hbf = HBF();
+
+  HBF::maze_path get_path = hbf.search(GRID,START,GOAL);
+
+  vector<HBF::maze_s> show_path = hbf.reconstruct_path(get_path.came_from, START, get_path.final);
+
+  cout << "show path from start to finish" << endl;
+  for(int i = show_path.size()-1; i >= 0; i--)
+  {
+      
+      HBF::maze_s step = show_path[i];
+      cout << "##### step " << step.g << " ";
+      cout  << step.x << ":";
+      cout  << step.y << "\t";
+      cout << "theta " << step.theta << endl;
+
+  }
+  
+  return 0;
+}
+
+//________________________________________________
+
+
+
+
 int main() {
   uWS::Hub h;
 
@@ -200,7 +297,14 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+
+
+
+  int lane = 1;
+  double ref_vel = 0.0;
+
+
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane , &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -243,7 +347,280 @@ int main() {
           	vector<double> next_y_vals;
 
 
+            system("clear");
+            cout << "ego" << endl << "\tx:y " << car_x << ":" << car_y  << "\ts:d " << car_s << ":" << car_d  ;
+            //cout << "yaw:" << car_yaw << "\tspeed:" << car_speed << endl;
+            auto XY = getXY(car_s , car_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            
+            //cout << "XY\t" << XY[0] << ":" << XY[1] << endl;
+
+            auto FN = getFrenet(car_x , car_y, car_yaw, map_waypoints_x, map_waypoints_y);
+
+
+            cout << "\tfrenet " << FN[0] << ":" << FN[1] << endl;
+
+            int closest_waypoint_id = ClosestWaypoint(car_x, car_y, map_waypoints_x, map_waypoints_y);
+            int next_waypoint_id = NextWaypoint(car_x, car_y,car_yaw, map_waypoints_x, map_waypoints_y);
+
+            cout << "Closest : " << closest_waypoint_id << "\tNext : " << next_waypoint_id << endl; 
+
+
+            auto CheckpointXY = getXY(map_waypoints_x[closest_waypoint_id] , map_waypoints_y[closest_waypoint_id], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            cout << next_waypoint_id << ": X:Y: " << CheckpointXY[0] << ":" << CheckpointXY[1] << endl; 
+
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+
+            // Provided previous path point size.
+            int path_size = previous_path_x.size();
+
+            // Preventing collitions.
+            if (path_size > 0) {car_s = end_path_s;}
+
+
+
+            // Prediction : Analysing other cars positions.
+            bool car_front = false;
+            bool car_left = false;
+            bool car_right = false;
+
+            for(int i = 0; i < GRID.size(); i++)
+              {
+                for(int j = 0; j < GRID[0].size(); j++)
+                {
+                GRID[i][j] = 0;
+                }
+              }
+
+
+
+            for ( int i = 0; i < sensor_fusion.size(); i++ ) 
+            {
+                float d = sensor_fusion[i][6];
+                int car_lane = -1;
+
+                // is it on the same lane we are
+                     if ( d > 0 && d < 4 ) {car_lane = 0;} 
+                else if ( d > 4 && d < 8 ) {car_lane = 1;} 
+                else if ( d > 8 && d < 12 ) {car_lane = 2;}
+                if (car_lane < 0) {continue;}
+
+                // Find car speed.
+                double vx = sensor_fusion[i][3];
+                double vy = sensor_fusion[i][4];
+                double check_speed = sqrt(vx*vx + vy*vy);
+                double check_car_s = sensor_fusion[i][5];
+
+                // Estimate car s position after executing previous trajectory.
+                //check_car_s += ((double)path_size*0.02*check_speed);
+
+                     if ( car_lane == lane ) {car_front |= check_car_s > car_s && check_car_s - car_s < 30;}// Car in our lane.
+                else if ( car_lane - lane == -1 ) {car_left |= car_s - 30 < check_car_s && car_s + 30 > check_car_s;} // Car left
+                else if ( car_lane - lane == 1 ) {car_right |= car_s - 30 < check_car_s && car_s + 30 > check_car_s;}// Car right
+                  
+                int grid_idx = floor(( check_car_s-car_s) / 10);
+
+
+                if (grid_idx < 5 && grid_idx > -5) 
+                {
+                  GRID[car_lane+1][grid_idx+5] = 1 ;
+                  if (car_lane != lane)
+                  {
+                      cout << "\t";
+                  }
+                  cout << car_lane << ":" << grid_idx << "\ts: " << check_car_s-car_s << endl;
+                }
+
+          
+
+                
+            }
+
+            // Behavior : Let's see what to do.
+            double speed_diff = 0;
+            const double MAX_SPEED = 49.5;
+            const double MAX_ACC = .224;
+
+
+
+            switch ((int)car_front)
+            {
+              case 0: cout << "No Car Ahead" << endl;
+                      if ( lane != 1 ) { // if we are not on the center lane.
+                        if ( ( lane == 0 && !car_right ) || ( lane == 2 && !car_left ) ) {
+                          lane = 1; // Back to center.
+                        }
+                      }
+                      if ( ref_vel < MAX_SPEED ) {speed_diff += MAX_ACC;}
+                      break;
+              case 1: cout << "Car in Front" << endl;                  
+                      if ( !car_left && lane > 0 ) {lane--;} 
+                        // if there is no car left and there is a left lane.
+                        // Change lane left.
+                      else if ( !car_right && lane != 2 ){lane++;} 
+                        // if there is no car right and there is a right lane.
+                        // Change lane right.
+                      else {speed_diff -= MAX_ACC;}   
+                      break;
+            }
+            
+
+
+
+
+
+          	vector<double> waypoint_x;
+            vector<double> waypoint_y;
+
+            double ref_x = car_x;
+            double ref_y = car_y;
+            double ref_yaw = deg2rad(car_yaw);
+
+            // Do I have have previous points
+            if ( path_size < 2  ) {
+
+              double prev_car_x = car_x - cos(car_yaw);
+              double prev_car_y = car_y - sin(car_yaw);
+              
+              waypoint_x.push_back(prev_car_x);
+              waypoint_x.push_back(car_x);
+              
+              waypoint_y.push_back(prev_car_y);
+              waypoint_y.push_back(car_y);
+
+            } 
+            else 
+            {
+                // Use the last two points.
+                ref_x = previous_path_x[path_size - 1];
+                ref_y = previous_path_y[path_size - 1];
+
+                double ref_x_prev = previous_path_x[path_size - 2];
+                double ref_y_prev = previous_path_y[path_size - 2];
+
+                ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
+
+                waypoint_x.push_back(ref_x_prev);
+                waypoint_x.push_back(ref_x);
+
+                waypoint_y.push_back(ref_y_prev);
+                waypoint_y.push_back(ref_y);
+              }
+
+
+
+
+            double safety_distance = 35.0 ;
+            double d_add = 2 + 4*lane ;
+
+            // Setting up target points in the future.
+            vector<double> next_wp0 = getXY(car_s + safety_distance  , d_add , map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s + safety_distance*2, d_add , map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s + safety_distance*3, d_add , map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+
+            waypoint_x.push_back( next_wp0[0] );
+            waypoint_x.push_back( next_wp1[0] );
+            waypoint_x.push_back( next_wp2[0] );
+
+            waypoint_y.push_back( next_wp0[1] );
+            waypoint_y.push_back( next_wp1[1] );
+            waypoint_y.push_back( next_wp2[1] );
+
+
+/*
+            waypoint_y.push_back(car_y);
+            waypoint_y.push_back(car_y);
+            waypoint_y.push_back(car_y);
+            vector<double> next_wp0 = getXY( car_s  + safety_distance,  d_add , map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            waypoint_x.push_back(  next_wp0[0] );
+            waypoint_y.push_back(  next_wp0[1] );
+
+*/
+            //for ( int i = 0; i < waypoint_x.size(); i++ ) 
+            //{
+              //cout << i << ":" << waypoint_x[i] << "\t" << waypoint_y[i] << endl;
+            //}
+
+
+
+
+            // Making coordinates to local car coordinates.
+            for ( int i = 0; i < waypoint_x.size(); i++ ) 
+            {
+              double shift_x = waypoint_x[i] - ref_x;
+              double shift_y = waypoint_y[i] - ref_y;
+
+              waypoint_x[i] = shift_x * cos(0 - ref_yaw) - shift_y * sin(0 - ref_yaw);
+              waypoint_y[i] = shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw);
+            }
+
+
+
+
+            //cout << "local" << endl;  
+            //for ( int i = 0; i < waypoint_x.size(); i++ ) 
+            //{
+              //cout << i << ":" << waypoint_x[i] << "\t" << waypoint_y[i] << endl;
+            //}
+
+
+
+            // create spline.
+            tk::spline s;
+            s.set_points(waypoint_x,waypoint_y);
+
+
+            
+//cout<<"spline set"<<endl;
+            // Output path points from previous path for continuity.
+          	//vector<double> next_x_vals;
+
+          	//vector<double> next_y_vals;
+
+
+            for ( int i = 0; i < path_size; i++ ) 
+            {
+              next_x_vals.push_back(previous_path_x[i]);
+              next_y_vals.push_back(previous_path_y[i]);
+            }
+
+            // calculate distance ahead
+            double target_x = safety_distance;
+            double target_y = s(target_x);
+            double target_dist = sqrt(target_x*target_x + target_y*target_y);
+
+            double x_add_on = 0;
+
+            for( int i = 1; i < 50 - path_size; i++ ) 
+            {
+              ref_vel += speed_diff;
+
+              if ( ref_vel > MAX_SPEED ) {ref_vel = MAX_SPEED;} 
+              else if ( ref_vel < MAX_ACC ) {ref_vel = MAX_ACC;}
+
+              double N = target_dist/(0.02*ref_vel/2.24);
+              double x_point = x_add_on + target_x/N;
+              double y_point = s(x_point);
+
+              x_add_on = x_point;
+
+              double x_ref = x_point;
+              double y_ref = y_point;
+
+              x_point = x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw);
+              y_point = x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw);
+
+              x_point += ref_x;
+              y_point += ref_y;
+
+              next_x_vals.push_back(x_point);
+              next_y_vals.push_back(y_point);
+            }
+
+            //expandGRID(GRID);
+            //hybrid_search(GRID, lane);
+
+
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
