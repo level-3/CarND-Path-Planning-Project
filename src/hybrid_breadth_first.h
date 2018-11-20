@@ -12,8 +12,8 @@ using namespace std;
 class HBF {
 public:
 
-	int NUM_THETA_CELLS = 90;
-	double SPEED = 1.45;
+	int NUM_THETA_CELLS = 20;
+	double SPEED = 1;
 	double LENGTH = 0.5;
 
 	struct maze_s {
