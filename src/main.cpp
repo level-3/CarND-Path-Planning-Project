@@ -188,6 +188,8 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 
 //-------------------------------------------------
+/*
+
             //impacts default behavior for most states
             int SPEED_LIMIT = 1;
             //all traffic in lane (besides ego) follow these speeds
@@ -264,7 +266,7 @@ int behaviour_planner(double car_s, int lane, vector<vector<double>> vehicle_lis
 	return 0;
 }
 
-
+*/
 //________________________________________________
 
 
